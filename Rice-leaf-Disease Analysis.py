@@ -2,14 +2,9 @@ import tensorflow as tf
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.applications import EfficientNetB0, DenseNet121, MobileNetV2, VGG16
-from tensorflow.keras.applications.efficientnet import preprocess_input as preprocess_efficientnet
-from tensorflow.keras.applications.densenet import preprocess_input as preprocess_densenet
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as preprocess_mobilenet
-from tensorflow.keras.applications.vgg16 import preprocess_input as preprocess_vgg
 from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-# from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 import matplotlib.pyplot as plt
 import os
 
@@ -31,13 +26,10 @@ learning_rate_densenet = 0.00005
 learning_rate_vgg = 0.000007
 learning_rate_efficientnet = 0.001111
 
-# learning_rate_vgg = 0.001
-
 # Function to Create Data Generators
-def create_data_generators(data_dir, img_size, batch_size, preprocess_input, augment=False):
+def create_data_generators(data_dir, img_size, batch_size, augment=False):
     if augment:
         train_datagen = ImageDataGenerator(
-            # preprocessing_function=preprocess_input,
             rescale=1.0 / 255,
             validation_split=0.2,
             rotation_range=20,
@@ -49,7 +41,6 @@ def create_data_generators(data_dir, img_size, batch_size, preprocess_input, aug
         )
     else:
         train_datagen = ImageDataGenerator(
-            # preprocessing_function=preprocess_input,
             rescale=1.0 / 255,
             validation_split=0.2
         )
@@ -84,14 +75,14 @@ def create_data_generators(data_dir, img_size, batch_size, preprocess_input, aug
     return train_generator, val_generator, test_generator
 
 # Model Building Function
-def build_sequential_model(base_model, layer_num, learning_rate):
+def build_sequential_model(base_model, layer_num, learning_rate, num_classes):
     base_model.trainable = False
     model = Sequential([
         base_model,
         GlobalAveragePooling2D(),
         Dense(layer_num, activation='relu'),
         Dropout(0.5),
-        Dense(train_generator_no_aug.num_classes, activation='softmax')
+        Dense(num_classes, activation='softmax')
     ])
     model.compile(optimizer=Adam(learning_rate=learning_rate),
                   loss='sparse_categorical_crossentropy',
@@ -102,12 +93,6 @@ def build_sequential_model(base_model, layer_num, learning_rate):
 def train_and_evaluate_single_model(model, title, case, train_gen_no_aug = [], train_gen_aug = [], val_gen = [], test_gen = []):
     early_stopping = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, min_lr=1e-6, verbose=1)
-    # model_checkpoint = ModelCheckpoint('{title}_best_model.keras', 
-    #                          save_best_only=True, 
-    #                          monitor='val_loss', 
-    #                          mode='min', 
-    #                          verbose=1, 
-    #                          save_weights_only=False)
 
     if case == "Train_No_Aug" and train_gen_no_aug != [] and val_gen != []:
         print(f"\nTraining {title} without Augmentation...")
@@ -115,7 +100,6 @@ def train_and_evaluate_single_model(model, title, case, train_gen_no_aug = [], t
             train_gen_no_aug,
             validation_data=val_gen,
             epochs=epochs,
-            # callbacks=[early_stopping, reduce_lr, model_checkpoint]
             callbacks=[early_stopping, reduce_lr]
         )
         
@@ -141,7 +125,6 @@ def train_and_evaluate_single_model(model, title, case, train_gen_no_aug = [], t
             train_gen_aug,
             validation_data=val_gen,
             epochs=epochs,
-            # callbacks=[early_stopping, reduce_lr, model_checkpoint]
             callbacks=[early_stopping, reduce_lr]
         )
                 
@@ -179,14 +162,14 @@ def train_and_evaluate_single_model(model, title, case, train_gen_no_aug = [], t
 
 # Models
 models = {
-    # "MobileNetV2": (MobileNetV2(weights='imagenet', include_top=False, input_shape=(img_size[0], img_size[1], 3)), preprocess_mobilenet),
-    # "DenseNet121": (DenseNet121(weights='imagenet', include_top=False, input_shape=(img_size[0], img_size[1], 3)), preprocess_densenet),
-    "VGG16": (VGG16(weights='imagenet', include_top=False, input_shape=(img_size[0], img_size[1], 3)),preprocess_vgg),
-    "EfficientNetB0": (EfficientNetB0(weights='imagenet', include_top=False, input_shape=(img_size[0], img_size[1], 3)), preprocess_efficientnet)
+    "MobileNetV2": MobileNetV2(weights='imagenet', include_top=False, input_shape=(img_size[0], img_size[1], 3)),
+    "DenseNet121": DenseNet121(weights='imagenet', include_top=False, input_shape=(img_size[0], img_size[1], 3)),
+    "VGG16": VGG16(weights='imagenet', include_top=False, input_shape=(img_size[0], img_size[1], 3)),
+    "EfficientNetB0": EfficientNetB0(weights='imagenet', include_top=False, input_shape=(img_size[0], img_size[1], 3))
 }
 
 print("================================================================================================================================")
-train_generator_no_aug, val_generator, _ = create_data_generators(data_dir, img_size, batch_size, "", augment=False)
+train_generator_no_aug, val_generator, _ = create_data_generators(data_dir, img_size, batch_size, augment=False)
 
 train_no_aug_num = train_generator_no_aug.samples
 vail_num = val_generator.samples
@@ -194,32 +177,33 @@ vail_num = val_generator.samples
 print(f"\nNumber of All Image: {train_no_aug_num + vail_num}\n")
 print(f"Number of X Training Images : {train_no_aug_num}\n")
 print(f"Number of X Validation and Test Images : {vail_num}\n")
-# Get image batch (1 image at a time)
-imgs_batch = next(train_generator_no_aug)
 
 # Shape of images
+imgs_batch = next(train_generator_no_aug)
 image_shape = imgs_batch[0].shape
+
 print(f"Image size (height, width, channels): {image_shape}\n")
 print("================================================================================================================================")
 
 # Train and Compare
+classes_number = train_generator_no_aug.num_classes
 results = {}
-for model_name, (base_model, preprocess_func) in models.items():
+for model_name, base_model in models.items():
     print(f"\nInitializing {model_name}...")
-    train_generator_no_aug, val_generator, test_generator = create_data_generators(data_dir, img_size, batch_size, preprocess_func, augment=False)
-    # train_generator_aug, _, _ = create_data_generators(data_dir, img_size, batch_size, preprocess_func, augment=True)
+    train_generator_no_aug, val_generator, test_generator = create_data_generators(data_dir, img_size, batch_size, augment=False)
+    # train_generator_aug, _, _ = create_data_generators(data_dir, img_size, batch_size, augment=True)
 
     if model_name == "MobileNetV2":
-        model = build_sequential_model(base_model, layer_num_mobilenet, learning_rate_mobilenet)
+        model = build_sequential_model(base_model, layer_num_mobilenet, learning_rate_mobilenet, classes_number)
 
     elif model_name == "DenseNet121":
-        model = build_sequential_model(base_model, layer_num_densenet, learning_rate_densenet)
+        model = build_sequential_model(base_model, layer_num_densenet, learning_rate_densenet, classes_number)
 
     elif model_name == "VGG16":
-        model = build_sequential_model(base_model, layer_num_vgg, learning_rate_vgg)
+        model = build_sequential_model(base_model, layer_num_vgg, learning_rate_vgg, classes_number)
         
     elif model_name == "EfficientNetB0":
-        model = build_sequential_model(base_model, layer_num_efficientnet, learning_rate_efficientnet)
+        model = build_sequential_model(base_model, layer_num_efficientnet, learning_rate_efficientnet, classes_number)
 
     # print("\n")
     # base_model.summary()
@@ -259,5 +243,4 @@ print("=========================================================================
 print("\nAccuracy Comparison:")
 for case , value in results.items():
     print(f"\n{case} : {value}")
-    print("===============================")
 print("================================================================================================================================")
